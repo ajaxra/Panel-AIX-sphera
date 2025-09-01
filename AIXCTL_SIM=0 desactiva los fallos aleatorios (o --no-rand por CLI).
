@@ -1,0 +1,68 @@
+Operational Details•Realistic operation simulation with timing•Detailed logging to aix_migration.log•System state tracking (current engine, last snapshot)•Clear CLI output with emoji indicators•Section headers for better readabilityjavac AixCtl.java
+java AixCtl migrate cube-to-sphere
+java AixCtl rollback
+cat aix_migration.log
+Error SimulationThe utility simulates real-world conditions with:•Random operation failures (15% chance)•Automatic rollback on migration failure•Time synchronization issues requiring --force•File existence checksThis implementation provides a complete, robust solution for managing the cosmic migration process with proper error handling and recovery mechanisms.
+
+// ======= Global options =======
+private static boolean OUT_JSON = false;
+private static boolean RANDOM_FAILS = !"0".equals(System.getenv("AIXCTL_SIM"));
+private static Long RNG_SEED = null;
+private static Random RNG = new Random();
+
+void parseGlobal(String[] argv) {
+    for (String s : argv) {
+        if ("--json".equals(s)) OUT_JSON = true;
+        if ("--no-rand".equals(s)) RANDOM_FAILS = false;
+        if (s.startsWith("--seed=")) {
+            try { RNG_SEED = Long.parseLong(s.substring(7)); } catch (Exception ignored) {}
+        }
+    }
+    if (RNG_SEED != null) RNG = new Random(RNG_SEED);
+}
+
+// Llama parseGlobal() al inicio de dispatch():
+void dispatch(String[] argv) throws Exception {
+    parseGlobal(argv);
+    String group = argv[0];
+    ...
+}
+
+// Utilidades de salida
+static void out(String key, String value) {
+    if (OUT_JSON) {
+        System.out.println("{\"ts\":\"" + now() + "\",\"event\":\"" + key + "\",\"msg\":\"" + value.replace("\"","\\\"") + "\"}");
+    } else {
+        System.out.println(value);
+    }
+}static boolean simulateOperation(String op, int durationSeconds) throws AixCtlException {
+    return simulateOperation(op, durationSeconds, 0, 0);
+}
+
+static boolean simulateOperation(String op, int durationSeconds, int retries, int backoffMs) throws AixCtlException {
+    int attempt = 0;
+    while (true) {
+        String msg = String.format("[%s] %s (attempt=%d)", now(), op, attempt+1);
+        out("op_start", "▶️ " + msg); log(msg);
+        try {
+            Thread.sleep(durationSeconds * 1000L);
+            boolean fail = RANDOM_FAILS && (RNG.nextDouble() < 0.15);
+            if (fail) throw new AixCtlException(op + " operation failed");
+            out("op_ok", op + " ✓"); log(op + " OK");
+            return true;
+        } catch (AixCtlException ex) {
+            if (attempt++ < retries) {
+                out("op_retry", op + " will retry"); log(op + " RETRY");
+                try { Thread.sleep(backoffMs * attempt); } catch (InterruptedException ignored) {}
+            } else {
+                log(op + " FAIL: " + ex.getMessage());
+                throw ex;
+            }
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+}simulateOperation("VERIFY", 2, 2, 500);         // hasta 2 reintentos
+simulateOperation("ENGINE_BOOT", 2, 1, 300);void preflight() throws AixCtlException {
+    ensureExists("sphere_migration
